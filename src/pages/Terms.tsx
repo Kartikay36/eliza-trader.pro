@@ -263,9 +263,15 @@ const Terms = () => {
               <h3 className="text-lg font-semibold text-purple-300 mb-3">Questions About These Terms?</h3>
               <p className="text-gray-300 leading-relaxed">
                 If you have any questions about these Terms of Service, please contact us at{' '}
-                <a href="mailto:legal@elizabethtrader.com" className="text-purple-400 hover:text-purple-300 transition-colors">
-                  legal@elizabethtrader.com
-                </a>
+                <a
+  href="https://t.me/Maria_Olavide_Brejilla"
+  className="text-purple-400 hover:text-purple-300 transition-colors"
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  @Maria_Olavide_Brejilla
+</a>
+
               </p>
             </div>
 
