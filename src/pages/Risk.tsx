@@ -260,9 +260,15 @@ const Risk = () => {
               <h3 className="text-lg font-semibold text-purple-300 mb-3">Questions About Risk Disclosure?</h3>
               <p className="text-gray-300 leading-relaxed">
                 If you have questions about this risk disclosure or need additional information, please contact us at{' '}
-                <a href="mailto:risk@elizabethtrader.com" className="text-purple-400 hover:text-purple-300 transition-colors">
-                  risk@elizabethtrader.com
-                </a>
+                <a
+  href="https://t.me/Maria_Olavide_Brejilla"
+  className="text-purple-400 hover:text-purple-300 transition-colors"
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  @Maria_Olavide_Brejilla
+</a>
+
               </p>
             </div>
 
