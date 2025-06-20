@@ -21,7 +21,8 @@ interface LockoutData {
 
 const authenticateUser = async (userId: string, password: string): Promise<string> => {
   try {
-    const response = await fetch('/api/login', {
+    const apiBase = import.meta.env.VITE_API_URL || '';
+const response = await fetch(`${apiBase}/api/login`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
@@ -59,7 +60,8 @@ const authenticateUser = async (userId: string, password: string): Promise<strin
 
 const logoutUser = async (): Promise<void> => {
   try {
-    const response = await fetch('/api/logout', {
+    const apiBase = import.meta.env.VITE_API_URL || '';
+const response = await fetch(`${apiBase}/api/login`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
