@@ -61,7 +61,7 @@ const response = await fetch(`${apiBase}/api/login`, {
 const logoutUser = async (): Promise<void> => {
   try {
     const apiBase = import.meta.env.VITE_API_URL || '';
-const response = await fetch(`${apiBase}/api/login`, {
+const response = await fetch(`${apiBase}/api/logout`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
