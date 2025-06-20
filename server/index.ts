@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 3001;
 app.use(cors({
   origin: [
     'http://localhost:5173',
-    'https://eliza-trader-pro.netlify.app/' // <-- Replace with your actual Netlify domain
+    'https://eliza-trader-pro.netlify.app' // <-- Replace with your actual Netlify domain
   ],
   credentials: true
 }));
