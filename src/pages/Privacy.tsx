@@ -235,7 +235,7 @@ const Privacy = () => {
                 If you have questions about this Privacy Policy or our privacy practices, please contact us:
               </p>
               <div className="space-y-2 text-gray-300">
-                <p>Email: <a href="mailto:privacy@elizabethtrader.com" className="text-purple-400 hover:text-purple-300 transition-colors">privacy@elizabethtrader.com</a></p>
+                <p>Telegram: <a href="https://t.me/Maria_Olavide_Brejilla" className="text-purple-400 hover:text-purple-300 transition-colors" target="_blank" rel="noopener noreferrer">@PrivacySupport_Maria</a></p>
                 <p>Subject Line: Privacy Policy Inquiry</p>
                 <p>Response Time: Within 30 days</p>
               </div>
