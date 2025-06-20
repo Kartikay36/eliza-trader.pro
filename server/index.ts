@@ -13,7 +13,10 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors({
-  origin: 'https://eliza-trader-pro.onrender.com/',
+  origin: [
+    'http://localhost:5173',
+    'https://eliza-trader-pro.netlify.app/' // <-- Replace with your actual Netlify domain
+  ],
   credentials: true
 }));
 app.use(bodyParser.json());
