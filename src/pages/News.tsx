@@ -7,7 +7,7 @@ import NewsEditor from '../components/NewsEditor';
 import { useToast } from '../hooks/use-toast';
 
 interface NewsPost {
-  id: string;
+  _id: string;
   title: string;
   content: string;
   type: 'video' | 'news' | 'insight' | 'announcement';
@@ -18,12 +18,16 @@ interface NewsPost {
   featured: boolean;
 }
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://eliza-trader-pro.onrender.com/api';
+
 const News = () => {
   const [posts, setPosts] = useState<NewsPost[]>([]);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingPost, setEditingPost] = useState<NewsPost | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -35,72 +39,50 @@ const News = () => {
     { id: 'announcement', label: 'Announcements', icon: Tag }
   ];
 
+  const fetchPosts = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/posts`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      setPosts(data);
+    } catch (error) {
+      console.error('Error fetching posts:', error);
+      setError('Failed to load posts. Please try again later.');
+      toast({
+        title: "Error",
+        description: "Failed to load posts",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    // Check admin status from sessionStorage
     const authToken = sessionStorage.getItem('authToken');
     const userRole = sessionStorage.getItem('userRole');
     setIsAdmin(!!authToken && userRole === 'admin');
-
-    // Load posts from localStorage
-    const savedPosts = localStorage.getItem('newsPosts');
-    if (savedPosts) {
-      setPosts(JSON.parse(savedPosts));
-    } else {
-      // Initial demo posts
-      const demoNews: NewsPost[] = [
-        {
-          id: '1',
-          title: 'Bitcoin Breaks $45,000 - Technical Analysis',
-          content: 'Comprehensive analysis of Bitcoin\'s recent price action and what it means for traders.',
-          type: 'insight',
-          createdAt: '2024-01-15T10:30:00Z',
-          author: 'Elizabeth Trader',
-          tags: ['Bitcoin', 'Technical Analysis', 'Crypto'],
-          featured: true
-        },
-        {
-          id: '2',
-          title: 'Weekly Market Update: Crypto Trends',
-          content: 'This week we saw significant movements in the crypto market.',
-          type: 'news',
-          createdAt: '2024-01-14T15:20:00Z',
-          author: 'Elizabeth Trader',
-          tags: ['Weekly Update', 'Market Analysis'],
-          featured: false
-        },
-        {
-          id: '3',
-          title: 'Advanced Binary Options Strategy Video',
-          content: 'Learn advanced binary options strategies in this comprehensive video tutorial.',
-          type: 'video',
-          videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
-          createdAt: '2024-01-13T09:00:00Z',
-          author: 'Elizabeth Trader',
-          tags: ['Binary Options', 'Strategy', 'Education'],
-          featured: true
-        }
-      ];
-      setPosts(demoNews);
-      localStorage.setItem('newsPosts', JSON.stringify(demoNews));
-    }
+    fetchPosts();
   }, []);
 
-  // Moved filteredPosts declaration to the top
   const filteredPosts = selectedCategory === 'all' 
     ? posts 
     : posts.filter(post => post.type === selectedCategory);
 
   const handleCreatePost = () => {
-    // Verify admin status before opening editor
     if (!isAdmin) {
       toast({
         title: "Access Denied",
         description: "Please log in as admin to create posts",
+        variant: "destructive"
       });
       navigate('/login');
       return;
     }
-    
     setEditingPost(null);
     setIsEditorOpen(true);
   };
@@ -110,81 +92,117 @@ const News = () => {
       toast({
         title: "Access Denied",
         description: "Please log in as admin to edit posts",
+        variant: "destructive"
       });
       navigate('/login');
       return;
     }
-    
     setEditingPost(post);
     setIsEditorOpen(true);
   };
 
-  const handleDeletePost = (postId: string) => {
+  const handleDeletePost = async (postId: string) => {
     if (!isAdmin) {
       toast({
         title: "Access Denied",
         description: "Please log in as admin to delete posts",
+        variant: "destructive"
       });
       navigate('/login');
       return;
     }
     
     if (window.confirm('Are you sure you want to delete this post?')) {
-      const updatedPosts = posts.filter(post => post.id !== postId);
-      setPosts(updatedPosts);
-      localStorage.setItem('newsPosts', JSON.stringify(updatedPosts));
-      toast({
-        title: "Success",
-        description: "Post deleted successfully",
-      });
+      try {
+        const token = sessionStorage.getItem('authToken');
+        const response = await fetch(`${API_BASE_URL}/posts/${postId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        setPosts(posts.filter(post => post._id !== postId));
+        toast({
+          title: "Success",
+          description: "Post deleted successfully",
+        });
+      } catch (error) {
+        console.error('Error deleting post:', error);
+        toast({
+          title: "Error",
+          description: "Failed to delete post",
+          variant: "destructive"
+        });
+      }
     }
   };
 
-  const handleSavePost = (postData: Omit<NewsPost, 'id' | 'createdAt' | 'author'>) => {
+  const handleSavePost = async (postData: Omit<NewsPost, '_id' | 'createdAt' | 'author'>) => {
     if (!isAdmin) {
       toast({
         title: "Session Expired",
         description: "Please log in again to continue",
+        variant: "destructive"
       });
       setIsEditorOpen(false);
       navigate('/login');
       return;
     }
     
-    const userId = sessionStorage.getItem('userId') || 'Admin';
-    
-    if (editingPost) {
-      // Update existing post
-      const updatedPosts = posts.map(post => 
-        post.id === editingPost.id 
-          ? { ...post, ...postData }
-          : post
-      );
-      setPosts(updatedPosts);
-      localStorage.setItem('newsPosts', JSON.stringify(updatedPosts));
-      toast({
-        title: "Success",
-        description: "Post updated successfully",
+    try {
+      const token = sessionStorage.getItem('authToken');
+      const userId = sessionStorage.getItem('userId') || 'Admin';
+      
+      const url = editingPost 
+        ? `${API_BASE_URL}/posts/${editingPost._id}`
+        : `${API_BASE_URL}/posts`;
+      
+      const method = editingPost ? 'PUT' : 'POST';
+      
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          ...postData,
+          author: userId
+        })
       });
-    } else {
-      // Create new post
-      const newPost: NewsPost = {
-        ...postData,
-        id: Date.now().toString(),
-        createdAt: new Date().toISOString(),
-        author: userId
-      };
-      const updatedPosts = [newPost, ...posts];
-      setPosts(updatedPosts);
-      localStorage.setItem('newsPosts', JSON.stringify(updatedPosts));
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const savedPost = await response.json();
+      
+      if (editingPost) {
+        setPosts(posts.map(p => p._id === editingPost._id ? savedPost : p));
+      } else {
+        setPosts([savedPost, ...posts]);
+      }
+      
       toast({
         title: "Success",
-        description: "Post created successfully",
+        description: `Post ${editingPost ? 'updated' : 'created'} successfully`,
+      });
+      
+      setIsEditorOpen(false);
+      setEditingPost(null);
+    } catch (error) {
+      console.error('Error saving post:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save post",
+        variant: "destructive"
       });
     }
-    
-    setIsEditorOpen(false);
-    setEditingPost(null);
   };
 
   const handleLogout = () => {
@@ -225,6 +243,47 @@ const News = () => {
       default: return 'from-gray-500 to-gray-600';
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white">
+        <Navigation />
+        <main className="pt-20 pb-16 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto text-center py-20">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500 mx-auto"></div>
+            <p className="mt-4 text-gray-400">Loading posts...</p>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white">
+        <Navigation />
+        <main className="pt-20 pb-16 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto text-center py-20">
+            <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-semibold text-white mb-2">Error Loading Posts</h3>
+            <p className="text-gray-400 mb-6">{error}</p>
+            <button
+              onClick={fetchPosts}
+              className="px-6 py-2 bg-purple-500 rounded-lg font-medium text-white hover:bg-purple-600 transition-all duration-200"
+            >
+              Retry
+            </button>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white">
@@ -316,7 +375,7 @@ const News = () => {
                 const TypeIcon = getTypeIcon(post.type);
                 return (
                   <article
-                    key={post.id}
+                    key={post._id}
                     className={`group bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 overflow-hidden hover:bg-white/10 transition-all duration-300 hover:scale-105 ${
                       post.featured ? 'ring-2 ring-purple-500/50' : ''
                     }`}
@@ -393,7 +452,7 @@ const News = () => {
                               <Edit className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={() => handleDeletePost(post.id)}
+                              onClick={() => handleDeletePost(post._id)}
                               className="p-1 text-gray-400 hover:text-red-400 transition-colors duration-200"
                               title="Delete post"
                             >
