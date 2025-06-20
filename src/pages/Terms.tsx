@@ -272,7 +272,7 @@ const Terms = () => {
             {/* Last Updated */}
             <div className="text-center pt-8 border-t border-white/10">
               <p className="text-sm text-gray-400">
-                Last updated: January 15, 2024
+                Last updated: May 15, 2025
               </p>
             </div>
           </div>
