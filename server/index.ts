@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: 'https://eliza-trader-pro.onrender.com/',
   credentials: true
 }));
 app.use(bodyParser.json());
@@ -24,7 +24,7 @@ if (!process.env.ADMIN_USERS || !process.env.ADMIN_PASSWORD_HASH) {
 }
 const ADMIN_USERS = process.env.ADMIN_USERS.split(',');
 const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH;
-const JWT_SECRET = process.env.JWT_SECRET || 'your_strong_secret_here';
+const JWT_SECRET = process.env.JWT_SECRET || '3c6b833022ffe6df35bb35c0ccbe80108459eed29e6b0480b089a0cb4cbf5f90';
 
 // API Routes
 const apiRouter: Router = express.Router();
