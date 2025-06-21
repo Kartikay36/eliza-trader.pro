@@ -6,8 +6,8 @@ import path from 'path';
 import bodyParser from 'body-parser';
 
 // Route imports
-import authRoutes from './src/routes/auth';
-import postRoutes from './src/routes/post';
+import authRoutes from '@routes/auth';
+import postRoutes from '@routes/post';
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
