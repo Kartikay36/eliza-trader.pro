@@ -4,11 +4,11 @@
   "description": "Backend API for Elizabeth's Trading Website",
   "main": "dist/server/index.js",
   "scripts": {
-    "dev": "nodemon server/index.ts",
-    "build": "tsc",
-    "start": "node dist/server/index.js",
-    "lint": "eslint src/**/*.ts",
-    "test": "jest"
+   "dev": "nodemon",
+  "build": "tsc",
+  "start": "node dist/server/index.js",
+  "lint": "eslint server/**/*.ts",
+  "test": "jest"
   },
   "keywords": [
     "trading",
