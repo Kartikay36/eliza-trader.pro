@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: eliza-trader-backend
+    env: node
+    buildCommand: npm run render-build
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        fromDatabase:
+          name: eliza-mongodb
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
