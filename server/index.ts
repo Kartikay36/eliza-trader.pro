@@ -4,14 +4,17 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import bodyParser from 'body-parser';
-import axios from 'axios';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import multer from 'multer';
+import fs from 'fs';
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
-const PORT = process.env.PORT || 8080; // Changed to match your PORT
+const PORT = process.env.PORT || 8080;
 const MONGO_URI = process.env.MONGO_URI || '';
-const ELIZA_API_URL = process.env.ELIZA_API_URL || 'https://eliza-api-41mt.onrender.com';
+const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key_here';
 
 // Middleware
 app.use(cors({
@@ -25,6 +28,15 @@ app.use(cors({
 // Increase payload limit for potential image uploads
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
+
+// Static files middleware for uploaded images
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// Create uploads directory if it doesn't exist
+const uploadsDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 // Database Connection
 if (MONGO_URI) {
@@ -40,6 +52,64 @@ if (MONGO_URI) {
 } else {
   console.log('⚠️  No MONGO_URI found - running without database');
 }
+
+// Admin User Schema
+const adminSchema = new mongoose.Schema({
+  username: {
+    type: String,
+    required: true,
+    unique: true,
+    trim: true
+  },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    trim: true,
+    lowercase: true
+  },
+  password: {
+    type: String,
+    required: true,
+    minlength: 6
+  },
+  name: {
+    type: String,
+    default: 'Elizabeth'
+  },
+  role: {
+    type: String,
+    default: 'admin'
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  lastLogin: {
+    type: Date,
+    default: null
+  }
+});
+
+// Hash password before saving
+adminSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) return next();
+  
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+// Compare password method
+adminSchema.methods.comparePassword = async function(candidatePassword: string) {
+  return bcrypt.compare(candidatePassword, this.password);
+};
+
+const Admin = mongoose.model('Admin', adminSchema);
 
 // Post Schema
 const postSchema = new mongoose.Schema({
@@ -82,6 +152,18 @@ const postSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  excerpt: {
+    type: String,
+    default: ''
+  },
+  seoTitle: {
+    type: String,
+    default: ''
+  },
+  seoDescription: {
+    type: String,
+    default: ''
+  },
   createdAt: {
     type: Date,
     default: Date.now
@@ -95,31 +177,303 @@ const postSchema = new mongoose.Schema({
 // Update the updatedAt field before saving
 postSchema.pre('save', function(next) {
   this.updatedAt = new Date();
+  if (!this.excerpt && this.content) {
+    // Generate excerpt from content (first 150 characters)
+    this.excerpt = this.content.substring(0, 150).replace(/<[^>]*>/g, '') + '...';
+  }
   next();
 });
 
 const Post = mongoose.model('Post', postSchema);
 
-// Keep your existing auth routes (don't modify these)
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    console.log('🔐 Login attempt for:', req.body.username || req.body.email);
-    const response = await axios.post(`${ELIZA_API_URL}/api/auth/login`, req.body);
-    console.log('✅ Login successful');
-    res.json(response.data);
-  } catch (error: any) {
-    console.error('❌ Login failed:', error.message);
-    res.status(error.response?.status || 500).json(error.response?.data || { error: 'Login failed' });
+// Multer configuration for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
   }
 });
 
-app.post('/api/auth/logout', async (req, res) => {
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed!'));
+    }
+  }
+});
+
+// JWT Authentication Middleware
+const authenticateToken = (req: any, res: express.Response, next: express.NextFunction) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ 
+      success: false, 
+      error: 'Access token required' 
+    });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
+    if (err) {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Invalid or expired token' 
+      });
+    }
+    req.user = user;
+    next();
+  });
+};
+
+// Initialize default admin user
+const initializeAdmin = async () => {
   try {
-    const response = await axios.post(`${ELIZA_API_URL}/api/auth/logout`, req.body);
-    res.json(response.data);
-  } catch (error: any) {
-    console.error('❌ Logout failed:', error.message);
-    res.status(error.response?.status || 500).json(error.response?.data || { error: 'Logout failed' });
+    if (mongoose.connection.readyState !== 1) return;
+    
+    const adminExists = await Admin.findOne({ username: 'elizabeth' });
+    if (!adminExists) {
+      const defaultAdmin = new Admin({
+        username: 'elizabeth',
+        email: 'elizabeth@trader.com',
+        password: 'elizabeth123',
+        name: 'Elizabeth'
+      });
+      
+      await defaultAdmin.save();
+      console.log('✅ Default admin user created');
+      console.log('🔑 Username: elizabeth');
+      console.log('🔑 Password: elizabeth123');
+    }
+  } catch (error) {
+    console.error('❌ Error creating default admin:', error);
+  }
+};
+
+// Initialize admin after database connection
+mongoose.connection.once('open', () => {
+  initializeAdmin();
+});
+
+// AUTH ROUTES
+
+// Login route
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    console.log('🔐 Login attempt for:', req.body.username || req.body.email);
+    
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not connected'
+      });
+    }
+
+    const { username, email, password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Password is required'
+      });
+    }
+
+    if (!username && !email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Username or email is required'
+      });
+    }
+
+    // Find admin by username or email
+    const query = username ? { username } : { email };
+    const admin = await Admin.findOne(query);
+
+    if (!admin) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid credentials'
+      });
+    }
+
+    // Check password
+    const isValidPassword = await admin.comparePassword(password);
+    if (!isValidPassword) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid credentials'
+      });
+    }
+
+    // Update last login
+    admin.lastLogin = new Date();
+    await admin.save();
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { 
+        id: admin._id, 
+        username: admin.username, 
+        email: admin.email,
+        role: admin.role 
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    console.log('✅ Login successful for:', admin.username);
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      token,
+      user: {
+        id: admin._id,
+        username: admin.username,
+        email: admin.email,
+        name: admin.name,
+        role: admin.role,
+        lastLogin: admin.lastLogin
+      }
+    });
+  } catch (error) {
+    console.error('❌ Login failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Login failed',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Logout route
+app.post('/api/auth/logout', authenticateToken, async (req, res) => {
+  try {
+    // In a more complex setup, you might want to blacklist the token
+    // For now, we'll just send a success response
+    console.log('🔓 User logged out:', req.user?.username);
+    
+    res.json({
+      success: true,
+      message: 'Logout successful'
+    });
+  } catch (error) {
+    console.error('❌ Logout failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Logout failed',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Verify token route
+app.get('/api/auth/verify', authenticateToken, (req, res) => {
+  res.json({
+    success: true,
+    user: req.user
+  });
+});
+
+// Change password route
+app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not connected'
+      });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        error: 'Current password and new password are required'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        error: 'New password must be at least 6 characters long'
+      });
+    }
+
+    const admin = await Admin.findById(req.user.id);
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Verify current password
+    const isValidPassword = await admin.comparePassword(currentPassword);
+    if (!isValidPassword) {
+      return res.status(401).json({
+        success: false,
+        error: 'Current password is incorrect'
+      });
+    }
+
+    // Update password
+    admin.password = newPassword;
+    await admin.save();
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+  } catch (error) {
+    console.error('❌ Password change failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to change password',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// FILE UPLOAD ROUTES
+
+// Upload image route
+app.post('/api/upload', authenticateToken, upload.single('image'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file uploaded'
+      });
+    }
+
+    const fileUrl = `/uploads/${req.file.filename}`;
+    
+    console.log('✅ File uploaded:', req.file.filename);
+    
+    res.json({
+      success: true,
+      message: 'File uploaded successfully',
+      url: fileUrl,
+      filename: req.file.filename
+    });
+  } catch (error) {
+    console.error('❌ File upload failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'File upload failed',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 });
 
@@ -203,9 +557,11 @@ app.get('/api/posts/:id', async (req, res) => {
       });
     }
     
-    // Increment view count
-    post.viewCount += 1;
-    await post.save();
+    // Increment view count only for published posts
+    if (post.isPublished) {
+      post.viewCount += 1;
+      await post.save();
+    }
     
     res.json({
       success: true,
@@ -222,7 +578,7 @@ app.get('/api/posts/:id', async (req, res) => {
 });
 
 // Create new post (admin only)
-app.post('/api/posts', async (req, res) => {
+app.post('/api/posts', authenticateToken, async (req, res) => {
   try {
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({
@@ -231,7 +587,17 @@ app.post('/api/posts', async (req, res) => {
       });
     }
 
-    const { title, content, category, tags, isPublished, featuredImage } = req.body;
+    const { 
+      title, 
+      content, 
+      category, 
+      tags, 
+      isPublished, 
+      featuredImage,
+      excerpt,
+      seoTitle,
+      seoDescription
+    } = req.body;
     
     // Validate required fields
     if (!title || !content) {
@@ -255,7 +621,10 @@ app.post('/api/posts', async (req, res) => {
       category: category || 'education',
       tags: processedTags,
       featuredImage: featuredImage || null,
-      isPublished: isPublished !== undefined ? isPublished : true
+      isPublished: isPublished !== undefined ? isPublished : true,
+      excerpt: excerpt || '',
+      seoTitle: seoTitle || title,
+      seoDescription: seoDescription || ''
     });
     
     const savedPost = await newPost.save();
@@ -277,7 +646,7 @@ app.post('/api/posts', async (req, res) => {
 });
 
 // Update post (admin only)
-app.put('/api/posts/:id', async (req, res) => {
+app.put('/api/posts/:id', authenticateToken, async (req, res) => {
   try {
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({
@@ -286,7 +655,17 @@ app.put('/api/posts/:id', async (req, res) => {
       });
     }
 
-    const { title, content, category, tags, isPublished, featuredImage } = req.body;
+    const { 
+      title, 
+      content, 
+      category, 
+      tags, 
+      isPublished, 
+      featuredImage,
+      excerpt,
+      seoTitle,
+      seoDescription
+    } = req.body;
     
     const updateData: any = {};
     if (title) updateData.title = title;
@@ -294,6 +673,9 @@ app.put('/api/posts/:id', async (req, res) => {
     if (category) updateData.category = category;
     if (isPublished !== undefined) updateData.isPublished = isPublished;
     if (featuredImage !== undefined) updateData.featuredImage = featuredImage;
+    if (excerpt !== undefined) updateData.excerpt = excerpt;
+    if (seoTitle !== undefined) updateData.seoTitle = seoTitle;
+    if (seoDescription !== undefined) updateData.seoDescription = seoDescription;
     
     // Process tags
     if (tags) {
@@ -333,7 +715,7 @@ app.put('/api/posts/:id', async (req, res) => {
 });
 
 // Delete post (admin only)
-app.delete('/api/posts/:id', async (req, res) => {
+app.delete('/api/posts/:id', authenticateToken, async (req, res) => {
   try {
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({
@@ -404,7 +786,7 @@ app.post('/api/posts/:id/like', async (req, res) => {
 });
 
 // Get all posts for admin (including unpublished)
-app.get('/api/admin/posts', async (req, res) => {
+app.get('/api/admin/posts', authenticateToken, async (req, res) => {
   try {
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({
@@ -524,8 +906,7 @@ app.get('/health', (req, res) => {
     status: 'OK',
     timestamp: new Date().toISOString(),
     services: {
-      database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-      eliza_api: 'external'
+      database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
     },
     environment: process.env.NODE_ENV || 'development',
     port: PORT
@@ -536,11 +917,12 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     message: 'Elizabeth Trading Backend API',
-    version: '1.0.0',
+    version: '2.0.0',
     status: 'running',
     endpoints: {
       posts: '/api/posts',
       auth: '/api/auth',
+      upload: '/api/upload',
       health: '/health',
       stats: '/api/stats',
       testDb: '/api/test-db'
@@ -574,6 +956,7 @@ app.listen(PORT, () => {
   console.log(`📊 MongoDB: ${MONGO_URI ? 'Configured' : 'Not configured'}`);
   console.log(`🔗 Frontend URL: http://localhost:5173`);
   console.log(`🔗 API URL: http://localhost:${PORT}`);
+  console.log(`🔑 Default Admin - Username: elizabeth, Password: elizabeth123`);
 });
 
 export default app;
