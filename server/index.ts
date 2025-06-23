@@ -1,4 +1,3 @@
-// index.ts
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
@@ -6,12 +5,11 @@ import dotenv from 'dotenv';
 import path from 'path';
 import bodyParser from 'body-parser';
 import axios from 'axios';
-import multer from 'multer';
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 8080; // Changed to match your PORT
 const MONGO_URI = process.env.MONGO_URI || '';
 const ELIZA_API_URL = process.env.ELIZA_API_URL || 'https://eliza-api-41mt.onrender.com';
 
@@ -24,29 +22,24 @@ app.use(cors({
   credentials: true,
 }));
 
-// Increase payload limit for image uploads
+// Increase payload limit for potential image uploads
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 
-// Configure multer for file uploads
-const storage = multer.memoryStorage();
-const upload = multer({ 
-  storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
-  }
-});
-
 // Database Connection
-mongoose.connect(MONGO_URI)
-  .then(() => {
-    console.log('MongoDB connected successfully');
-    console.log('Database:', mongoose.connection.db.databaseName);
-  })
-  .catch(err => {
-    console.error('MongoDB connection error:', err);
-    process.exit(1);
-  });
+if (MONGO_URI) {
+  mongoose.connect(MONGO_URI)
+    .then(() => {
+      console.log('✅ MongoDB connected successfully');
+      console.log('📊 Database:', mongoose.connection.db?.databaseName || 'elizaapi');
+    })
+    .catch(err => {
+      console.error('❌ MongoDB connection error:', err);
+      console.log('⚠️  Continuing without database - some features will be limited');
+    });
+} else {
+  console.log('⚠️  No MONGO_URI found - running without database');
+}
 
 // Post Schema
 const postSchema = new mongoose.Schema({
@@ -62,14 +55,15 @@ const postSchema = new mongoose.Schema({
   category: {
     type: String,
     required: true,
-    enum: ['market-analysis', 'education', 'trading-tips', 'news', 'strategy']
+    enum: ['market-analysis', 'education', 'trading-tips', 'news', 'strategy'],
+    default: 'education'
   },
   tags: [{
     type: String,
     trim: true
   }],
   featuredImage: {
-    type: String, // Base64 string or URL
+    type: String,
     default: null
   },
   author: {
@@ -109,9 +103,12 @@ const Post = mongoose.model('Post', postSchema);
 // Keep your existing auth routes (don't modify these)
 app.post('/api/auth/login', async (req, res) => {
   try {
+    console.log('🔐 Login attempt for:', req.body.username || req.body.email);
     const response = await axios.post(`${ELIZA_API_URL}/api/auth/login`, req.body);
+    console.log('✅ Login successful');
     res.json(response.data);
   } catch (error: any) {
+    console.error('❌ Login failed:', error.message);
     res.status(error.response?.status || 500).json(error.response?.data || { error: 'Login failed' });
   }
 });
@@ -121,6 +118,7 @@ app.post('/api/auth/logout', async (req, res) => {
     const response = await axios.post(`${ELIZA_API_URL}/api/auth/logout`, req.body);
     res.json(response.data);
   } catch (error: any) {
+    console.error('❌ Logout failed:', error.message);
     res.status(error.response?.status || 500).json(error.response?.data || { error: 'Logout failed' });
   }
 });
@@ -130,6 +128,15 @@ app.post('/api/auth/logout', async (req, res) => {
 // Get all posts (for public viewing)
 app.get('/api/posts', async (req, res) => {
   try {
+    // Check if database is connected
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not connected',
+        message: 'Posts feature is temporarily unavailable'
+      });
+    }
+
     const { category, page = 1, limit = 10, search } = req.query;
     
     let query: any = { isPublished: true };
@@ -168,7 +175,7 @@ app.get('/api/posts', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error fetching posts:', error);
+    console.error('❌ Error fetching posts:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Failed to fetch posts',
@@ -180,6 +187,13 @@ app.get('/api/posts', async (req, res) => {
 // Get single post by ID
 app.get('/api/posts/:id', async (req, res) => {
   try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not connected'
+      });
+    }
+
     const post = await Post.findById(req.params.id);
     
     if (!post) {
@@ -198,7 +212,7 @@ app.get('/api/posts/:id', async (req, res) => {
       post
     });
   } catch (error) {
-    console.error('Error fetching post:', error);
+    console.error('❌ Error fetching post:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Failed to fetch post',
@@ -208,15 +222,22 @@ app.get('/api/posts/:id', async (req, res) => {
 });
 
 // Create new post (admin only)
-app.post('/api/posts', upload.single('featuredImage'), async (req, res) => {
+app.post('/api/posts', async (req, res) => {
   try {
-    const { title, content, category, tags, isPublished } = req.body;
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not connected'
+      });
+    }
+
+    const { title, content, category, tags, isPublished, featuredImage } = req.body;
     
     // Validate required fields
-    if (!title || !content || !category) {
+    if (!title || !content) {
       return res.status(400).json({
         success: false,
-        error: 'Title, content, and category are required'
+        error: 'Title and content are required'
       });
     }
     
@@ -228,23 +249,17 @@ app.post('/api/posts', upload.single('featuredImage'), async (req, res) => {
         tags;
     }
     
-    // Handle image upload
-    let featuredImage = null;
-    if (req.file) {
-      // Convert to base64
-      featuredImage = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-    }
-    
     const newPost = new Post({
       title,
       content,
-      category,
+      category: category || 'education',
       tags: processedTags,
-      featuredImage,
+      featuredImage: featuredImage || null,
       isPublished: isPublished !== undefined ? isPublished : true
     });
     
     const savedPost = await newPost.save();
+    console.log('✅ New post created:', savedPost.title);
     
     res.status(201).json({
       success: true,
@@ -252,7 +267,7 @@ app.post('/api/posts', upload.single('featuredImage'), async (req, res) => {
       post: savedPost
     });
   } catch (error) {
-    console.error('Error creating post:', error);
+    console.error('❌ Error creating post:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Failed to create post',
@@ -262,26 +277,29 @@ app.post('/api/posts', upload.single('featuredImage'), async (req, res) => {
 });
 
 // Update post (admin only)
-app.put('/api/posts/:id', upload.single('featuredImage'), async (req, res) => {
+app.put('/api/posts/:id', async (req, res) => {
   try {
-    const { title, content, category, tags, isPublished } = req.body;
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not connected'
+      });
+    }
+
+    const { title, content, category, tags, isPublished, featuredImage } = req.body;
     
     const updateData: any = {};
     if (title) updateData.title = title;
     if (content) updateData.content = content;
     if (category) updateData.category = category;
     if (isPublished !== undefined) updateData.isPublished = isPublished;
+    if (featuredImage !== undefined) updateData.featuredImage = featuredImage;
     
     // Process tags
     if (tags) {
       updateData.tags = typeof tags === 'string' ? 
         tags.split(',').map((tag: string) => tag.trim()) : 
         tags;
-    }
-    
-    // Handle image upload
-    if (req.file) {
-      updateData.featuredImage = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
     }
     
     const updatedPost = await Post.findByIdAndUpdate(
@@ -297,13 +315,15 @@ app.put('/api/posts/:id', upload.single('featuredImage'), async (req, res) => {
       });
     }
     
+    console.log('✅ Post updated:', updatedPost.title);
+    
     res.json({
       success: true,
       message: 'Post updated successfully',
       post: updatedPost
     });
   } catch (error) {
-    console.error('Error updating post:', error);
+    console.error('❌ Error updating post:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Failed to update post',
@@ -315,6 +335,13 @@ app.put('/api/posts/:id', upload.single('featuredImage'), async (req, res) => {
 // Delete post (admin only)
 app.delete('/api/posts/:id', async (req, res) => {
   try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not connected'
+      });
+    }
+
     const deletedPost = await Post.findByIdAndDelete(req.params.id);
     
     if (!deletedPost) {
@@ -324,12 +351,14 @@ app.delete('/api/posts/:id', async (req, res) => {
       });
     }
     
+    console.log('🗑️  Post deleted:', deletedPost.title);
+    
     res.json({
       success: true,
       message: 'Post deleted successfully'
     });
   } catch (error) {
-    console.error('Error deleting post:', error);
+    console.error('❌ Error deleting post:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Failed to delete post',
@@ -341,6 +370,13 @@ app.delete('/api/posts/:id', async (req, res) => {
 // Like post
 app.post('/api/posts/:id/like', async (req, res) => {
   try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not connected'
+      });
+    }
+
     const post = await Post.findById(req.params.id);
     
     if (!post) {
@@ -358,7 +394,7 @@ app.post('/api/posts/:id/like', async (req, res) => {
       likes: post.likes
     });
   } catch (error) {
-    console.error('Error liking post:', error);
+    console.error('❌ Error liking post:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Failed to like post',
@@ -370,6 +406,13 @@ app.post('/api/posts/:id/like', async (req, res) => {
 // Get all posts for admin (including unpublished)
 app.get('/api/admin/posts', async (req, res) => {
   try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not connected'
+      });
+    }
+
     const posts = await Post.find()
       .sort({ createdAt: -1 })
       .select('-__v');
@@ -379,7 +422,7 @@ app.get('/api/admin/posts', async (req, res) => {
       posts
     });
   } catch (error) {
-    console.error('Error fetching admin posts:', error);
+    console.error('❌ Error fetching admin posts:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Failed to fetch posts',
@@ -391,6 +434,19 @@ app.get('/api/admin/posts', async (req, res) => {
 // Get post statistics
 app.get('/api/stats', async (req, res) => {
   try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.json({
+        success: true,
+        stats: {
+          totalPosts: 0,
+          totalViews: 0,
+          totalLikes: 0,
+          categoryStats: [],
+          message: 'Database not connected - showing default stats'
+        }
+      });
+    }
+
     const totalPosts = await Post.countDocuments({ isPublished: true });
     const totalViews = await Post.aggregate([
       { $match: { isPublished: true } },
@@ -416,10 +472,47 @@ app.get('/api/stats', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error fetching stats:', error);
+    console.error('❌ Error fetching stats:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Failed to fetch statistics',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Test database connection endpoint
+app.get('/api/test-db', async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not connected',
+        connectionState: mongoose.connection.readyState
+      });
+    }
+
+    // Try to create a test post
+    const testPost = new Post({
+      title: 'Test Post',
+      content: 'This is a test post to verify database connection',
+      category: 'education',
+      isPublished: false
+    });
+
+    await testPost.save();
+    await Post.findByIdAndDelete(testPost._id); // Clean up
+
+    res.json({
+      success: true,
+      message: 'Database connection working properly',
+      database: mongoose.connection.db?.databaseName
+    });
+  } catch (error) {
+    console.error('❌ Database test failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Database test failed',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
   }
@@ -433,7 +526,9 @@ app.get('/health', (req, res) => {
     services: {
       database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
       eliza_api: 'external'
-    }
+    },
+    environment: process.env.NODE_ENV || 'development',
+    port: PORT
   });
 });
 
@@ -442,18 +537,20 @@ app.get('/', (req, res) => {
   res.json({
     message: 'Elizabeth Trading Backend API',
     version: '1.0.0',
+    status: 'running',
     endpoints: {
       posts: '/api/posts',
       auth: '/api/auth',
       health: '/health',
-      stats: '/api/stats'
+      stats: '/api/stats',
+      testDb: '/api/test-db'
     }
   });
 });
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Unhandled error:', err);
+  console.error('💥 Unhandled error:', err);
   res.status(500).json({
     success: false,
     error: 'Internal server error',
@@ -461,10 +558,22 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   });
 });
 
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: 'Endpoint not found',
+    path: req.originalUrl
+  });
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`📊 MongoDB: ${MONGO_URI ? 'Configured' : 'Not configured'}`);
+  console.log(`🔗 Frontend URL: http://localhost:5173`);
+  console.log(`🔗 API URL: http://localhost:${PORT}`);
 });
 
 export default app;
