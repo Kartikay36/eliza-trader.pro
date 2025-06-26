@@ -1,17 +1,15 @@
 import express from 'express';
-import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import bodyParser from 'body-parser';
 import axios from 'axios';
-import { createClient } from '@supabase/supabase-js'; // Add this
+import { createClient } from '@supabase/supabase-js';
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const MONGO_URI = process.env.MONGO_URI || '';
 const ELIZA_API_URL = process.env.ELIZA_API_URL || 'https://eliza-api-41mt.onrender.com';
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY = process.env.SUPABASE_KEY || '';
@@ -19,7 +17,7 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY || '';
 // Initialize Supabase
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Middleware (keep existing)
+// Middleware
 app.use(cors({
   origin: [
     'http://localhost:5173',
@@ -29,15 +27,7 @@ app.use(cors({
 }));
 app.use(bodyParser.json());
 
-// Database Connection (keep MongoDB for auth if needed)
-mongoose.connect(MONGO_URI)
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => {
-    console.error('MongoDB connection error:', err);
-    process.exit(1);
-  });
-
-// Proxy routes to eliza-api (keep existing)
+// Proxy routes to eliza-api (keep login functionality)
 app.post('/api/auth/login', async (req, res) => {
   try {
     const response = await axios.post(`${ELIZA_API_URL}/api/auth/login`, req.body);
@@ -56,7 +46,7 @@ app.post('/api/auth/logout', async (req, res) => {
   }
 });
 
-// New Supabase routes for posts
+// Supabase Post Routes
 app.get('/api/posts', async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -78,7 +68,11 @@ app.post('/api/posts', async (req, res) => {
 
     const { data, error } = await supabase
       .from('posts')
-      .insert([{ ...req.body, author: req.body.userId }])
+      .insert([{ 
+        ...req.body,
+        author: req.body.userId,
+        created_at: new Date().toISOString()
+      }])
       .select();
     
     if (error) throw error;
@@ -128,9 +122,7 @@ app.get('/health', (req, res) => {
   res.status(200).json({ 
     status: 'OK',
     services: {
-      database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-      eliza_api: 'external',
-      supabase: 'connected' // Assuming Supabase connection is always active
+      supabase: 'connected'
     }
   });
 });
