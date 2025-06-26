@@ -1,9 +1,0 @@
-{
-  "watch": ["server/**/*", ".env"],
-  "ext": "ts,js,json",
-  "exec": "ts-node -r tsconfig-paths/register server/index.ts",
-  "ignore": ["server/**/*.spec.ts", "dist/**/*"],
-  "execMap": {
-    "ts": "ts-node -r tsconfig-paths/register"
-  }
-}
