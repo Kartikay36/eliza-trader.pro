@@ -17,76 +17,62 @@ const body_parser_1 = __importDefault(require("body-parser"));
 const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const path_1 = __importDefault(require("path"));
-const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
-const bcryptjs_1 = __importDefault(require("bcryptjs"));
+const axios_1 = __importDefault(require("axios"));
+const supabase_js_1 = require("@supabase/supabase-js");
 dotenv_1.default.config({ path: path_1.default.resolve(__dirname, '../.env') });
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3001;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+const ELIZA_API_URL = process.env.ELIZA_API_URL || 'https://eliza-api-41mt.onrender.com';
+// Initialize Supabase
+const supabase = (0, supabase_js_1.createClient)(SUPABASE_URL, SUPABASE_KEY);
 // Middleware
 app.use((0, cors_1.default)({
     origin: [
         'http://localhost:5173',
-        'https://eliza-trader-pro.netlify.app' // <-- Replace with your actual Netlify domain
+        'https://eliza-trader-pro.netlify.app'
     ],
     credentials: true
 }));
 app.use(body_parser_1.default.json());
-// Environment variables
-if (!process.env.ADMIN_USERS || !process.env.ADMIN_PASSWORD_HASH) {
-    throw new Error('ADMIN_USERS and ADMIN_PASSWORD_HASH environment variables must be set');
-}
-const ADMIN_USERS = process.env.ADMIN_USERS.split(',');
-const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH;
-const JWT_SECRET = process.env.JWT_SECRET || '3c6b833022ffe6df35bb35c0ccbe80108459eed29e6b0480b089a0cb4cbf5f90';
-// API Routes
-const apiRouter = express_1.default.Router();
-// Login endpoint
-apiRouter.post('/login', function (req, res) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const { userId, password } = req.body;
-        if (!userId || !password) {
-            return res.status(400).json({ error: 'Username and password are required' });
-        }
-        try {
-            const normalizedUserId = userId.toLowerCase();
-            const isValidUser = ADMIN_USERS.map(u => u.toLowerCase()).includes(normalizedUserId);
-            const isValidPassword = yield bcryptjs_1.default.compare(password, ADMIN_PASSWORD_HASH);
-            if (!isValidUser || !isValidPassword) {
-                return res.status(401).json({ error: 'Invalid credentials' });
-            }
-            const token = jsonwebtoken_1.default.sign({ userId: normalizedUserId, role: 'admin' }, JWT_SECRET, { expiresIn: '1h' });
-            res.json({ token });
-        }
-        catch (error) {
-            console.error('Login error:', error);
-            res.status(500).json({ error: 'Internal server error' });
+// Proxy to ELIZA API (keep login functionality)
+app.post('/api/auth/login', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const response = yield axios_1.default.post(`${ELIZA_API_URL}/api/auth/login`, req.body);
+        res.json(response.data);
+    }
+    catch (error) {
+        res.status(error.response.status || 500).json(error.response.data || { error: 'Login failed' });
+    }
+}));
+// Supabase Posts Routes (add all the CRUD operations we implemented earlier)
+app.get('/api/posts', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { data, error } = yield supabase
+            .from('posts')
+            .select('*')
+            .order('created_at', { ascending: false });
+        if (error)
+            throw error;
+        res.json(data);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}));
+// Add other routes (POST, PUT, DELETE) as implemented in the previous Supabase version
+// Health check
+app.get('/health', (req, res) => {
+    res.status(200).json({
+        status: 'OK',
+        services: {
+            supabase: 'connected'
         }
     });
-});
-// Logout endpoint
-apiRouter.post('/logout', (req, res) => {
-    res.json({ message: 'Logged out successfully' });
-});
-// Protected route example
-apiRouter.get('/profile', (req, res) => {
-    // Verify token middleware would go here
-    res.json({ user: req.user });
-});
-// Mount API router
-app.use('/api', apiRouter);
-// Health check endpoint
-app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'OK' });
-});
-// <-- Add your new route here!
-app.get('/', (req, res) => {
-    res.send('Backend is running!');
 });
 // Start server
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
 exports.default = app;
-// For Vercel deployment
-module.exports = app;
-//# sourceMappingURL=index.js.map
