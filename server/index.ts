@@ -27,13 +27,17 @@ app.use(cors({
 }));
 app.use(bodyParser.json());
 
-// Proxy routes to eliza-api (keep login functionality)
+// Proxy routes to eliza-api
 app.post('/api/auth/login', async (req, res) => {
   try {
     const response = await axios.post(`${ELIZA_API_URL}/api/auth/login`, req.body);
     res.json(response.data);
-  } catch (error) {
-    res.status(error.response?.status || 500).json(error.response?.data || { error: 'Login failed' });
+  } catch (error: unknown) {
+    if (axios.isAxiosError(error)) {
+      res.status(error.response?.status || 500).json(error.response?.data || { error: 'Login failed' });
+    } else {
+      res.status(500).json({ error: 'Unexpected error occurred' });
+    }
   }
 });
 
@@ -41,8 +45,12 @@ app.post('/api/auth/logout', async (req, res) => {
   try {
     const response = await axios.post(`${ELIZA_API_URL}/api/auth/logout`, req.body);
     res.json(response.data);
-  } catch (error) {
-    res.status(error.response?.status || 500).json(error.response?.data || { error: 'Logout failed' });
+  } catch (error: unknown) {
+    if (axios.isAxiosError(error)) {
+      res.status(error.response?.status || 500).json(error.response?.data || { error: 'Logout failed' });
+    } else {
+      res.status(500).json({ error: 'Unexpected error occurred' });
+    }
   }
 });
 
@@ -55,9 +63,12 @@ app.get('/api/posts', async (req, res) => {
       .order('created_at', { ascending: false });
     
     if (error) throw error;
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    return res.json(data);
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      return res.status(500).json({ error: error.message });
+    }
+    return res.status(500).json({ error: 'Unknown error occurred' });
   }
 });
 
@@ -76,9 +87,12 @@ app.post('/api/posts', async (req, res) => {
       .select();
     
     if (error) throw error;
-    res.status(201).json(data[0]);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    return res.status(201).json(data[0]);
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      return res.status(500).json({ error: error.message });
+    }
+    return res.status(500).json({ error: 'Unknown error occurred' });
   }
 });
 
@@ -94,9 +108,12 @@ app.put('/api/posts/:id', async (req, res) => {
       .select();
     
     if (error) throw error;
-    res.json(data[0]);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    return res.json(data[0]);
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      return res.status(500).json({ error: error.message });
+    }
+    return res.status(500).json({ error: 'Unknown error occurred' });
   }
 });
 
@@ -111,9 +128,12 @@ app.delete('/api/posts/:id', async (req, res) => {
       .eq('id', req.params.id);
     
     if (error) throw error;
-    res.status(204).end();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    return res.status(204).end();
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      return res.status(500).json({ error: error.message });
+    }
+    return res.status(500).json({ error: 'Unknown error occurred' });
   }
 });
 
