@@ -17,17 +17,31 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY || '';
 // Initialize Supabase
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Middleware
+// Enhanced CORS configuration
 app.use(cors({
   origin: [
     'http://localhost:5173',
     'https://eliza-trader-pro.netlify.app'
   ],
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
 app.use(bodyParser.json());
 
-// Proxy routes to eliza-api
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'OK',
+    services: {
+      supabase: 'connected',
+      eliza_api: ELIZA_API_URL ? 'configured' : 'not configured'
+    }
+  });
+});
+
+// Auth routes - properly structured under /api/auth
 app.post('/api/auth/login', async (req, res) => {
   try {
     const response = await axios.post(`${ELIZA_API_URL}/api/auth/login`, req.body);
@@ -54,7 +68,7 @@ app.post('/api/auth/logout', async (req, res) => {
   }
 });
 
-// Supabase Post Routes
+// Posts routes - properly structured under /api/posts
 app.get('/api/posts', async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -137,24 +151,33 @@ app.delete('/api/posts/:id', async (req, res) => {
   }
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'OK',
-    services: {
-      supabase: 'connected'
-    }
-  });
-});
-
 // Root endpoint
 app.get('/', (req, res) => {
-  res.send('Backend is running!');
+  res.json({
+    message: 'Backend is running!',
+    endpoints: {
+      auth: {
+        login: 'POST /api/auth/login',
+        logout: 'POST /api/auth/logout'
+      },
+      posts: {
+        get: 'GET /api/posts',
+        create: 'POST /api/posts',
+        update: 'PUT /api/posts/:id',
+        delete: 'DELETE /api/posts/:id'
+      },
+      health: 'GET /health'
+    }
+  });
 });
 
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`ELIZA_API_URL: ${ELIZA_API_URL}`);
+  console.log(`CORS allowed origins: 
+    http://localhost:5173
+    https://eliza-trader-pro.netlify.app`);
 });
 
 export default app;
